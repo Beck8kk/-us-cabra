@@ -3,106 +3,233 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#080b20">
-  <title>Noite Estrelada</title>
+  <meta name="theme-color" content="#8bbce7">
+  <title>Horizonte — ambiente 3D</title>
   <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17314b;
+      background: #dcebf7;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: #080b20; color: #f5f2ff; font-family: system-ui, sans-serif; }
-    body { display: grid; place-items: center; min-height: 100svh; padding: 18px; }
-    main { width: min(100%, 960px); text-align: center; }
-    h1 { margin: 0 0 8px; font-size: clamp(1.35rem, 4vw, 2rem); letter-spacing: .04em; }
-    p { margin: 0 0 14px; color: #c6c7e4; font-size: .95rem; }
-    canvas { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid #34365b; border-radius: 16px; background: #0b1030; box-shadow: 0 18px 60px #0008; touch-action: none; }
-    .hint { margin-top: 12px; color: #aeb2d8; font-size: .85rem; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { min-height: 100svh; }
+    #scene { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+    .panel {
+      position: fixed;
+      z-index: 1;
+      top: clamp(18px, 4vw, 42px);
+      left: clamp(18px, 4vw, 48px);
+      pointer-events: none;
+      animation: arrive .8s ease-out both;
+    }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 10px;
+      color: #355a79;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .19em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { width: 21px; height: 1px; background: #5785a9; content: ""; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 54px); font-weight: 500; letter-spacing: -.055em; line-height: 1; }
+    .subtitle { margin: 12px 0 0; color: #385b78; font-size: clamp(13px, 1.5vw, 15px); letter-spacing: .01em; }
+    .controls {
+      position: fixed;
+      z-index: 1;
+      right: clamp(18px, 4vw, 48px);
+      bottom: clamp(18px, 4vw, 38px);
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      color: #294d6b;
+      font-size: 12px;
+      animation: arrive .8s .15s ease-out both;
+    }
+    .hint { padding: 11px 15px; border: 1px solid #ffffff99; border-radius: 999px; background: #f5faff70; backdrop-filter: blur(12px); }
+    button {
+      width: 39px;
+      height: 39px;
+      border: 1px solid #ffffffa8;
+      border-radius: 50%;
+      background: #f5faff85;
+      color: #294d6b;
+      font: inherit;
+      font-size: 18px;
+      cursor: pointer;
+      backdrop-filter: blur(12px);
+      transition: background .2s, transform .2s;
+    }
+    button:hover { transform: rotate(-35deg); background: #fff; }
+    button:focus-visible { outline: 2px solid #294d6b; outline-offset: 3px; }
+    .error { position: fixed; inset: auto 20px 20px; z-index: 2; display: none; padding: 12px 16px; border-radius: 12px; background: #fff; color: #17314b; font-size: 14px; text-align: center; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 520px) {
+      .subtitle { max-width: 230px; line-height: 1.5; }
+      .controls { left: 18px; right: 18px; justify-content: space-between; }
+      .hint { font-size: 11px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
   </style>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+  </script>
 </head>
 <body>
-  <main>
-    <h1>Noite Estrelada</h1>
-    <p>Recolha as estrelas que caem e aproveite a noite.</p>
-    <canvas id="game" aria-label="Jogo: mova a lua pelo piso para recolher estrelas no céu noturno"></canvas>
-    <div class="hint">← → ou A / D para mover · toque ou arraste para jogar</div>
-  </main>
-  <script>
-    (() => {
-      const canvas = document.querySelector('#game');
-      const ctx = canvas.getContext('2d');
-      const W = 960, H = 540, groundY = 455;
-      let dpr = 1, score = 0, best = Number(localStorage.getItem('noite-estrelada-best') || 0);
-      let player = { x: W / 2, y: groundY - 19, r: 19, speed: 390 };
-      let stars = [], keys = new Set(), pointerX = null, last = 0, spawn = 0, elapsed = 0;
-      const skyStars = Array.from({ length: 115 }, () => ({ x: Math.random() * W, y: Math.random() * (groundY - 35), r: Math.random() * 1.7 + .35, phase: Math.random() * Math.PI * 2 }));
-      function resize() {
-        const box = canvas.getBoundingClientRect();
-        dpr = Math.min(window.devicePixelRatio || 1, 2);
-        canvas.width = Math.round(box.width * dpr); canvas.height = Math.round(box.height * dpr);
-        ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
-      }
-      function starPath(x, y, outer, inner, points = 5) {
-        ctx.beginPath();
-        for (let i = 0; i < points * 2; i++) {
-          const radius = i % 2 ? inner : outer;
-          const a = i * Math.PI / points - Math.PI / 2;
-          ctx.lineTo(x + Math.cos(a) * radius, y + Math.sin(a) * radius);
-        }
-        ctx.closePath();
-      }
-      function draw() {
-        const sky = ctx.createLinearGradient(0, 0, 0, groundY);
-        sky.addColorStop(0, '#080b20'); sky.addColorStop(.7, '#11183b'); sky.addColorStop(1, '#24234b');
-        ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-        skyStars.forEach(s => {
-          const glow = .45 + Math.sin(elapsed * 1.5 + s.phase) * .3;
-          ctx.globalAlpha = glow; ctx.fillStyle = '#e5e8ff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
-        });
-        ctx.globalAlpha = 1;
-        // Horizonte suave e piso: sem cenário adicional.
-        const haze = ctx.createLinearGradient(0, groundY - 30, 0, groundY + 25);
-        haze.addColorStop(0, '#8576d022'); haze.addColorStop(1, '#8576d000);
-        ctx.fillStyle = haze; ctx.fillRect(0, groundY - 30, W, 55);
-        ctx.fillStyle = '#17172f'; ctx.fillRect(0, groundY, W, H - groundY);
-        ctx.fillStyle = '#8077b8'; ctx.fillRect(0, groundY, W, 2);
-        ctx.fillStyle = '#292746'; ctx.fillRect(0, groundY + 5, W, 2);
-        stars.forEach(s => {
-          ctx.save(); ctx.shadowColor = '#ffe78a'; ctx.shadowBlur = 18; ctx.fillStyle = '#ffe78a';
-          starPath(s.x, s.y, 13, 5); ctx.fill(); ctx.restore();
-        });
-        // Personagem-lua.
-        ctx.save(); ctx.shadowColor = '#d7e3ff'; ctx.shadowBlur = 22;
-        const moon = ctx.createRadialGradient(player.x - 6, player.y - 7, 2, player.x, player.y, player.r);
-        moon.addColorStop(0, '#fffde8'); moon.addColorStop(1, '#b9c9ff');
-        ctx.fillStyle = moon; ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-        ctx.fillStyle = '#171a3c'; ctx.beginPath(); ctx.arc(player.x + 7, player.y - 4, 15, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.font = '600 20px system-ui'; ctx.textAlign = 'left';
-        ctx.fillText(`Estrelas: ${score}`, 24, 38);
-        ctx.textAlign = 'right'; ctx.fillStyle = '#c9cbe8'; ctx.font = '15px system-ui'; ctx.fillText(`Recorde: ${best}`, W - 24, 37);
-      }
-      function frame(now) {
-        const dt = Math.min((now - last) / 1000 || 0, .04); last = now; elapsed += dt;
-        if (keys.has('ArrowLeft') || keys.has('a') || keys.has('A')) player.x -= player.speed * dt;
-        if (keys.has('ArrowRight') || keys.has('d') || keys.has('D')) player.x += player.speed * dt;
-        if (pointerX !== null) player.x += Math.sign(pointerX - player.x) * Math.min(Math.abs(pointerX - player.x), player.speed * dt);
-        player.x = Math.max(player.r + 5, Math.min(W - player.r - 5, player.x));
-        spawn += dt;
-        if (spawn > Math.max(.38, .95 - score * .012)) { stars.push({ x: 25 + Math.random() * (W - 50), y: -15, speed: 110 + Math.random() * 75 + score * 2 }); spawn = 0; }
-        stars = stars.filter(s => {
-          s.y += s.speed * dt;
-          if (Math.hypot(s.x - player.x, s.y - player.y) < player.r + 12) {
-            score++; if (score > best) { best = score; localStorage.setItem('noite-estrelada-best', best); }
-            return false;
+  <canvas id="scene" aria-label="Ambiente 3D com piso branco infinito e céu azul"></canvas>
+  <header class="panel">
+    <p class="eyebrow">Um espaço aberto</p>
+    <h1>Horizonte</h1>
+    <p class="subtitle">Piso branco, céu azul e todo o espaço para respirar.</p>
+  </header>
+  <div class="controls">
+    <span class="hint">Arraste para olhar · role para aproximar</span>
+    <button id="reset" type="button" aria-label="Restaurar a vista inicial" title="Restaurar vista">⟳</button>
+  </div>
+  <div id="error" class="error" role="status">Não foi possível carregar a cena 3D. Verifique sua conexão e atualize a página.</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    const canvas = document.querySelector('#scene');
+    const errorMessage = document.querySelector('#error');
+    try {
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.12;
+
+      const scene = new THREE.Scene();
+      const horizonColor = new THREE.Color('#dce9f2');
+      scene.fog = new THREE.Fog(horizonColor, 90, 720);
+
+      // A esfera envolve a câmera e pinta o céu em degradê, sem linha ou textura repetida.
+      const skyGeometry = new THREE.SphereGeometry(5000, 32, 20);
+      const skyMaterial = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        uniforms: { sunDirection: { value: new THREE.Vector3(-0.45, 0.62, -0.64).normalize() } },
+        vertexShader: `
+          varying vec3 vDirection;
+          void main() {
+            vDirection = normalize(position);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }
-          return s.y < H + 20;
-        });
-        draw(); requestAnimationFrame(frame);
+        `,
+        fragmentShader: `
+          varying vec3 vDirection;
+          uniform vec3 sunDirection;
+          void main() {
+            vec3 direction = normalize(vDirection);
+            float height = max(direction.y, 0.0);
+            vec3 horizon = vec3(0.82, 0.89, 0.94);
+            vec3 middle = vec3(0.48, 0.69, 0.88);
+            vec3 zenith = vec3(0.20, 0.43, 0.68);
+            vec3 sky = mix(horizon, middle, smoothstep(0.0, 0.38, height));
+            sky = mix(sky, zenith, smoothstep(0.25, 1.0, height) * 0.82);
+            float sun = dot(direction, normalize(sunDirection));
+            float glow = pow(max(sun, 0.0), 24.0) * 0.16;
+            float disc = smoothstep(0.9990, 0.99965, sun);
+            sky = mix(sky, vec3(1.0, 0.96, 0.84), clamp(glow + disc, 0.0, 1.0));
+            gl_FragColor = vec4(sky, 1.0);
+          }
+        `
+      });
+      const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+      sky.renderOrder = -1;
+      scene.add(sky);
+
+      // Plano muito extenso e neblina suave fazem o piso branco desaparecer no horizonte.
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(20000, 20000),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = -0.02;
+      scene.add(floor);
+
+      scene.add(new THREE.HemisphereLight(0xe9f5ff, 0xd8e0e5, 2.05));
+      const sunlight = new THREE.DirectionalLight(0xfff4df, 2.1);
+      sunlight.position.set(-80, 110, -120);
+      scene.add(sunlight);
+
+      const camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.1, 10000);
+      const initial = { theta: 0, phi: 1.28, radius: 12 };
+      const target = new THREE.Vector3(0, 1.35, 0);
+      let theta = initial.theta;
+      let phi = initial.phi;
+      let radius = initial.radius;
+      let dragging = false;
+      let previousX = 0;
+      let previousY = 0;
+
+      function updateCamera() {
+        const sinPhi = Math.sin(phi);
+        camera.position.set(
+          target.x + radius * sinPhi * Math.sin(theta),
+          target.y + radius * Math.cos(phi),
+          target.z + radius * sinPhi * Math.cos(theta)
+        );
+        camera.lookAt(target);
       }
-      window.addEventListener('keydown', e => { if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault(); keys.add(e.key); });
-      window.addEventListener('keyup', e => keys.delete(e.key));
-      function setPointer(e) { const r = canvas.getBoundingClientRect(); pointerX = (e.clientX - r.left) / r.width * W; }
-      canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); setPointer(e); });
-      canvas.addEventListener('pointermove', e => { if (e.buttons) setPointer(e); });
-      canvas.addEventListener('pointerup', () => { pointerX = null; });
-      window.addEventListener('resize', resize); resize(); requestAnimationFrame(frame);
-    })();
+      updateCamera();
+
+      canvas.addEventListener('pointerdown', event => {
+        dragging = true;
+        previousX = event.clientX;
+        previousY = event.clientY;
+        canvas.setPointerCapture(event.pointerId);
+        canvas.style.cursor = 'grabbing';
+      });
+      canvas.addEventListener('pointermove', event => {
+        if (!dragging) return;
+        theta -= (event.clientX - previousX) * 0.004;
+        phi = THREE.MathUtils.clamp(phi + (event.clientY - previousY) * 0.004, 0.16, Math.PI / 2 - 0.025);
+        previousX = event.clientX;
+        previousY = event.clientY;
+        updateCamera();
+      });
+      function stopDragging() { dragging = false; canvas.style.cursor = 'grab'; }
+      canvas.addEventListener('pointerup', stopDragging);
+      canvas.addEventListener('pointercancel', stopDragging);
+      canvas.addEventListener('wheel', event => {
+        event.preventDefault();
+        radius = THREE.MathUtils.clamp(radius * (1 + event.deltaY * 0.001), 4, 38);
+        updateCamera();
+      }, { passive: false });
+      canvas.style.cursor = 'grab';
+
+      document.querySelector('#reset').addEventListener('click', () => {
+        theta = initial.theta;
+        phi = initial.phi;
+        radius = initial.radius;
+        updateCamera();
+      });
+
+      function resize() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setSize(width, height);
+      }
+      window.addEventListener('resize', resize);
+
+      renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    } catch (error) {
+      console.error('Falha ao iniciar o ambiente 3D:', error);
+      errorMessage.style.display = 'block';
+    }
   </script>
 </body>
 </html>
